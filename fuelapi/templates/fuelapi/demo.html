@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fuel Route Optimizer — Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; }
+  #map { height: 70vh; }
+  .panel { padding: 16px 20px; max-width: 900px; }
+  input, button { font-size: 15px; padding: 8px 10px; margin: 4px; }
+  button { cursor: pointer; }
+  #summary { margin-top: 10px; }
+  .stop { border-bottom: 1px solid #eee; padding: 6px 0; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h2>Fuel Route Optimizer</h2>
+  <input id="start" size="30" value="New York, NY" placeholder="Start (USA)">
+  <input id="finish" size="30" value="Chicago, IL" placeholder="Finish (USA)">
+  <button onclick="plan()">Optimize</button>
+  <span id="status"></span>
+  <div id="summary"></div>
+</div>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([39.5, -98.35], 4);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  { attribution: 'Tiles © Esri — Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012',
+    maxZoom: 20 }).addTo(map);
+let layers = [];
+async function plan() {
+  layers.forEach(l => map.removeLayer(l)); layers = [];
+  const start = document.getElementById('start').value;
+  const finish = document.getElementById('finish').value;
+  document.getElementById('status').textContent = 'Computing…';
+  const res = await fetch('/api/optimize/', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({start, finish})
+  });
+  const data = await res.json();
+  if (!res.ok) { document.getElementById('status').textContent = 'Error: ' + data.error; return; }
+  document.getElementById('status').textContent = '';
+  const latlngs = data.route.geometry.coordinates.map(c => [c[1], c[0]]);
+  const line = L.polyline(latlngs, {weight: 4}).addTo(map); layers.push(line);
+  map.fitBounds(line.getBounds());
+  let html = `<h3>${data.route.distance_miles} mi · $${data.total_fuel_cost_usd} fuel · ${data.fuel_stops.length} stops</h3>`;
+  data.fuel_stops.forEach((s, i) => {
+    const m = L.marker([s.lat, s.lng]).addTo(map)
+      .bindPopup(`<b>Stop ${i+1}: ${s.name}</b><br>${s.city}, ${s.state}<br>$${s.price_per_gallon}/gal · ${s.gallons} gal · $${s.cost_usd}`);
+    layers.push(m);
+    html += `<div class="stop"><b>${i+1}. ${s.name}</b> — ${s.city}, ${s.state} · $${s.price_per_gallon}/gal · ${s.gallons} gal ($${s.cost_usd}) · mile ${s.route_mile}</div>`;
+  });
+  document.getElementById('summary').innerHTML = html;
+}
+</script>
+</body>
+</html>
